@@ -1,0 +1,165 @@
+
+Project Documentation: Controlling Relays with ESP8266 and Sinric Pro
+
+---
+
+Project Overview
+
+In this project, we are using the ESP8266 NodeMCU microcontroller to control multiple relays remotely via the Sinric Pro platform. The relays can be switched on and off using voice commands through smart home assistants (like Amazon Alexa or Google Assistant) or through the Sinric Pro mobile app.
+
+The project involves the following components:
+- ESP8266 NodeMCU: A Wi-Fi-enabled microcontroller used to connect to the internet and control relays.
+- Relays: Used to control high-power devices like lights, fans, or motors. The relays in this project are active-low, meaning they are turned on by sending a LOW signal.
+- Sinric Pro: A cloud-based platform that provides APIs for integrating smart devices into voice assistants like Alexa and Google Home.
+
+Features
+- Remote control of up to four relays.
+- Integration with Sinric Pro to allow remote control via voice assistants or a mobile app.
+- The relays are initialized in an "off" state when the system starts.
+
+---
+
+Hardware Components
+1. ESP8266 NodeMCU
+2. 4-channel Relay Module
+3. Jumper wires
+4. Power Supply
+5. Wi-Fi Router (for internet connection)
+
+---
+
+Libraries Required
+1. ESP8266WiFi.h: Provides Wi-Fi functionality for the ESP8266.
+2. SinricPro.h: Used to integrate the project with the Sinric Pro platform and handle communication with the Sinric Pro cloud service.
+3. Arduino.h: Standard library for working with Arduino-compatible boards, such as ESP8266.
+
+---
+
+Code Explanation
+
+Global Constants and Variables
+
+#define WIFI_SSID         "YOUR-WIFI-NAME"    
+#define WIFI_PASS         "YOUR-WIFI-PASSWORD"
+#define APP_KEY           "YOUR-APP-KEY"
+#define APP_SECRET        "YOUR-APP-SECRET"
+
+// Enter the device IDs here
+#define device_ID_1   "SWITCH_ID_NO_1_HERE"
+#define device_ID_2   "SWITCH_ID_NO_2_HERE"
+#define device_ID_3   "SWITCH_ID_NO_3_HERE"
+#define device_ID_4   "SWITCH_ID_NO_4_HERE"
+
+// Define GPIO pins connected to Relays
+#define RelayPin1 5  //D1
+#define RelayPin2 4  //D2
+#define RelayPin3 14 //D5
+#define RelayPin4 12 //D6
+
+- WIFI_SSID, WIFI_PASS: These hold the Wi-Fi credentials to connect the ESP8266 to the internet.
+- APP_KEY, APP_SECRET: Credentials for authenticating the ESP8266 with the Sinric Pro platform.
+- device_ID_x: Unique IDs corresponding to the individual relays connected to Sinric Pro.
+- RelayPinX: GPIO pins on the ESP8266 that are connected to the respective relays.
+
+Device Configuration
+
+typedef struct {      
+  int relayPIN;
+} deviceConfig_t;
+
+std::map<String, deviceConfig_t> devices = {
+    {device_ID_1, {  RelayPin1 }},
+    {device_ID_2, {  RelayPin2 }},
+    {device_ID_3, {  RelayPin3 }},
+    {device_ID_4, {  RelayPin4 }}     
+};
+
+- deviceConfig_t: This struct holds the relay pin configuration for each device.
+- devices: A map that stores the relationship between the device ID (from Sinric Pro) and the corresponding relay pin on the ESP8266.
+
+Wi-Fi Setup Function
+
+void setupWiFi() {
+  Serial.printf("\r\n[Wifi]: Connecting");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.printf(".");
+    delay(250);
+  }
+  Serial.printf("connected!\r\n[WiFi]: IP-Address is %s\r\n", WiFi.localIP().toString().c_str());
+}
+
+- setupWiFi(): Connects the ESP8266 to the Wi-Fi network using the specified SSID and password. It prints the IP address once connected, which is useful for debugging.
+
+Relay Initialization
+
+void setupRelays() { 
+  for (auto &device : devices) {           
+    int relayPIN = device.second.relayPIN; 
+    pinMode(relayPIN, OUTPUT);             
+    digitalWrite(relayPIN, HIGH);
+  }
+}
+
+- setupRelays(): This function initializes all the relays by setting the corresponding GPIO pins as output and writing HIGH to turn them off at startup. Many relays are active-low, meaning that writing HIGH keeps them off.
+
+Handling Power State Change
+
+bool onPowerState(String deviceId, bool &state) {
+  Serial.printf("%s: %s\r\n", deviceId.c_str(), state ? "on" : "off");
+  int relayPIN = devices[deviceId].relayPIN;
+  digitalWrite(relayPIN, !state);             
+  return true;
+}
+
+- onPowerState(): This is a callback function that gets triggered when Sinric Pro sends a command to change the state of a relay.
+  - The function takes the device ID and the desired state (true for "on", false for "off").
+  - It looks up the relay pin associated with the device and sends the opposite signal (!state) to the relay (due to active-low logic).
+
+Sinric Pro Setup
+
+void setupSinricPro() {
+  for (auto &device : devices) {
+    const char *deviceId = device.first.c_str();
+    SinricProSwitch &mySwitch = SinricPro[deviceId];
+    mySwitch.onPowerState(onPowerState);
+  }
+
+  SinricPro.begin(APP_KEY, APP_SECRET);
+  SinricPro.restoreDeviceStates(true);
+}
+
+- setupSinricPro(): This function registers the devices with Sinric Pro, linking each device to its corresponding onPowerState() callback function. This is how the ESP8266 knows which relay to control when a command is received from Sinric Pro.
+
+Main Setup and Loop Functions
+
+void setup() {
+  Serial.begin(9600);
+  setupWiFi();
+  setupRelays();
+  setupSinricPro();
+}
+
+void loop() {
+  SinricPro.handle();
+}
+
+- setup(): This function is called once when the ESP8266 starts up. It initializes the serial communication, connects to Wi-Fi, sets up the relays, and connects to Sinric Pro.
+- loop(): This is the main loop of the program, and it continuously listens for incoming commands from Sinric Pro using SinricPro.handle().
+
+---
+
+How the System Works
+
+1. Startup: When the ESP8266 starts up, it connects to your Wi-Fi network and initializes the relays.
+2. Sinric Pro Communication: The ESP8266 connects to the Sinric Pro platform using the provided app key and secret.
+3. Relay Control: When you issue a voice command or use the Sinric Pro mobile app to control a device, the Sinric Pro platform sends a command to the ESP8266. The command contains the device ID and desired power state (on/off).
+4. Relay Response: The onPowerState() callback is triggered, and the corresponding relay is turned on or off based on the command.
+5. State Synchronization: Sinric Pro ensures the device's states are kept in sync, so the current state of each device is reflected in the app.
+
+---
+
+Conclusion
+
+This project demonstrates how to control relays using an ESP8266 NodeMCU with Sinric Pro for smart home integration. It allows for seamless remote control of devices using voice assistants or the Sinric Pro app. By expanding the number of relays, you can control multiple devices from a single ESP8266 board, making it ideal for IoT automation projects.
